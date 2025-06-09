@@ -158,8 +158,8 @@ def run_performance_test():
     print("="*70)
     
     # Create B-tree with different degrees for comparison
-    degrees = [10, 25, 50, 100]
-    num_records = 10000
+    degrees = [5, 10, 25, 50, 100, 1000]
+    num_records = 100000
     
     print(f"Setting up B-trees with {num_records:,} records...")
     
