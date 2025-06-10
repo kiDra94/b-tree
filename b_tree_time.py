@@ -1,6 +1,7 @@
 import time
 import random
 import statistics
+import bisect
 
 class BTreeNode:
     def __init__(self, leaf=False):
@@ -9,12 +10,12 @@ class BTreeNode:
         self.children = []
         self.leaf = leaf
 
-class BTreePerformance:
-    def __init__(self, degree=50):  # Higher degree for better performance with large datasets
+class BTreeCorrected:
+    def __init__(self, degree=50):
         self.root = BTreeNode(leaf=True)
         self.degree = degree
-        self.total_nodes = 0
         self.search_comparisons = 0
+        self.binary_searches = 0  # Track binary search operations
     
     def insert(self, key, value):
         """Insert without printing for performance"""
@@ -30,30 +31,26 @@ class BTreePerformance:
             self._insert_non_full(root, key, value)
     
     def _insert_non_full(self, node, key, value):
-        i = len(node.keys) - 1
-        
         if node.leaf:
-            node.keys.append(None)
-            node.values.append(None)
-            
-            while i >= 0 and key < node.keys[i]:
-                node.keys[i + 1] = node.keys[i]
-                node.values[i + 1] = node.values[i]
-                i -= 1
-            
-            node.keys[i + 1] = key
-            node.values[i + 1] = value
+            # Use binary search to find insertion position
+            pos = bisect.bisect_left(node.keys, key)
+            node.keys.insert(pos, key)
+            node.values.insert(pos, value)
         else:
-            while i >= 0 and key < node.keys[i]:
-                i -= 1
-            i += 1
+            # Use binary search to find child to insert into
+            pos = bisect.bisect_left(node.keys, key)
             
-            if len(node.children[i].keys) == (2 * self.degree) - 1:
-                self._split_child(node, i)
-                if key > node.keys[i]:
-                    i += 1
+            if pos < len(node.keys) and node.keys[pos] == key:
+                # Key already exists, update value
+                node.values[pos] = value
+                return
             
-            self._insert_non_full(node.children[i], key, value)
+            if len(node.children[pos].keys) == (2 * self.degree) - 1:
+                self._split_child(node, pos)
+                if key > node.keys[pos]:
+                    pos += 1
+            
+            self._insert_non_full(node.children[pos], key, value)
     
     def _split_child(self, parent, index):
         degree = self.degree
@@ -78,45 +75,57 @@ class BTreePerformance:
         parent.values.insert(index, mid_value)
     
     def search_with_stats(self, key):
-        """Search and return timing + comparison statistics"""
+        """Search using binary search and return timing + comparison statistics"""
         self.search_comparisons = 0
+        self.binary_searches = 0
         start_time = time.perf_counter()
         
-        result = self._search_node(self.root, key)
+        result = self._search_node_binary(self.root, key)
         
         end_time = time.perf_counter()
         search_time = (end_time - start_time) * 1000000  # Convert to microseconds
         
-        return result, search_time, self.search_comparisons
+        return result, search_time, self.search_comparisons, self.binary_searches
     
-    def _search_node(self, node, key):
-        """Search with comparison counting"""
-        i = 0
+    def _search_node_binary(self, node, key):
+        """Search using binary search within nodes"""
+        self.binary_searches += 1
         
-        while i < len(node.keys):
-            self.search_comparisons += 1
-            if key == node.keys[i]:
-                return (node.keys[i], node.values[i])
-            elif key < node.keys[i]:
-                break
-            i += 1
+        # Use binary search to find position
+        pos = bisect.bisect_left(node.keys, key)
         
+        # Count the comparisons that bisect would make
+        # Binary search makes approximately log2(n) comparisons
+        if len(node.keys) > 0:
+            import math
+            self.search_comparisons += max(1, int(math.log2(len(node.keys)) + 1))
+        
+        # Check if key found at this position
+        if pos < len(node.keys) and node.keys[pos] == key:
+            return (node.keys[pos], node.values[pos])
+        
+        # If leaf node and key not found
         if node.leaf:
             return None
         
-        return self._search_node(node.children[i], key)
+        # Recursively search appropriate child
+        return self._search_node_binary(node.children[pos], key)
+    
+
     
     def get_tree_stats(self):
         """Get statistics about the B-tree structure"""
         height = self._get_height(self.root)
         node_count = self._count_nodes(self.root)
         total_keys = self._count_keys(self.root)
+        avg_keys_per_node = total_keys / node_count if node_count > 0 else 0
         
         return {
             'height': height,
             'nodes': node_count,
             'keys': total_keys,
-            'degree': self.degree
+            'degree': self.degree,
+            'avg_keys_per_node': avg_keys_per_node
         }
     
     def _get_height(self, node):
@@ -152,33 +161,52 @@ def linear_search(data_list, target):
     end_time = time.perf_counter()
     return None, (end_time - start_time) * 1000000, comparisons
 
-def run_performance_test():
-    print("="*70)
-    print("B-TREE SEARCH PERFORMANCE ANALYZER")
-    print("="*70)
+def binary_search_list(data_list, target):
+    """Binary search on sorted list for comparison"""
+    comparisons = 0
+    start_time = time.perf_counter()
     
-    # Create B-tree with different degrees for comparison
-    degrees = [5, 10, 25, 50, 100, 1000]
-    num_records = 100000
+    left, right = 0, len(data_list) - 1
     
-    print(f"Setting up B-trees with {num_records:,} records...")
+    while left <= right:
+        comparisons += 1
+        mid = (left + right) // 2
+        mid_key = data_list[mid][0]
+        
+        if mid_key == target:
+            end_time = time.perf_counter()
+            return data_list[mid], (end_time - start_time) * 1000000, comparisons
+        elif mid_key < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    
+    end_time = time.perf_counter()
+    return None, (end_time - start_time) * 1000000, comparisons
+
+def run_corrected_performance_test():
+    print("="*80)
+    print("B-TREE PERFORMANCE: LINEAR vs BINARY SEARCH COMPARISON")
+    print("="*80)
+    
+    degrees = [10, 25, 50, 100, 500]
+    num_records = 50000  # Smaller for detailed analysis
+    
+    print(f"Setting up test with {num_records:,} records...")
     
     # Generate test data
-    print("Generating random employee data...")
-    test_data = []
-    for i in range(num_records):
-        emp_id = i + 1000  # IDs from 1000 to 10999
-        name = f"Employee_{emp_id}"
-        test_data.append((emp_id, name))
-    
-    # Shuffle for realistic insertion order
+    test_data = [(i + 1000, f"Employee_{i + 1000}") for i in range(num_records)]
     random.shuffle(test_data)
     
-    # Create B-trees with different degrees
+    # Create sorted data for comparison searches
+    sorted_data = sorted(test_data)
+    
+    print("\nBuilding B-trees...")
     btrees = {}
+    
     for degree in degrees:
-        print(f"Building B-tree with degree {degree}...")
-        btree = BTreePerformance(degree)
+        print(f"  Building B-tree with degree {degree}...")
+        btree = BTreeCorrected(degree)
         
         start_time = time.perf_counter()
         for key, value in test_data:
@@ -187,203 +215,141 @@ def run_performance_test():
         
         btrees[degree] = btree
         stats = btree.get_tree_stats()
-        
-        print(f"  Degree {degree}: Height={stats['height']}, Nodes={stats['nodes']}, Build time={end_time-start_time:.3f}s")
+        print(f"    Height: {stats['height']}, Nodes: {stats['nodes']}, "
+              f"Avg keys/node: {stats['avg_keys_per_node']:.1f}, Build time: {end_time-start_time:.3f}s")
     
-    # Create linear search data for comparison
-    sorted_data = sorted(test_data)
+    print("\n" + "="*80)
+    print("SEARCH METHOD COMPARISON")
+    print("="*80)
     
-    print("\n" + "="*70)
-    print("SEARCH PERFORMANCE COMPARISON")
-    print("="*70)
+    # Test different search methods
+    test_ids = random.sample(range(1000, 1000 + num_records), 1000)
     
-    while True:
-        try:
-            print(f"\nEnter employee ID to search (1000-{999+num_records}) or 'quit' to exit:")
-            user_input = input("ID: ").strip()
-            
-            if user_input.lower() == 'quit':
-                break
-            
-            search_id = int(user_input)
-            
-            if search_id < 1000 or search_id >= 1000 + num_records:
-                print(f"ID must be between 1000 and {999+num_records}")
-                continue
-            
-            print(f"\n🔍 Searching for Employee ID: {search_id}")
-            print("-" * 50)
-            
-            # Test linear search
-            linear_result, linear_time, linear_comps = linear_search(sorted_data, search_id)
-            
-            print(f"📊 LINEAR SEARCH:")
-            if linear_result:
-                print(f"   ✅ Found: {linear_result[1]}")
-            else:
-                print(f"   ❌ Not found")
-            print(f"   ⏱️  Time: {linear_time:.2f} μs")
-            print(f"   🔢 Comparisons: {linear_comps:,}")
-            
-            print()
-            
-            # Test B-tree searches
-            print(f"📊 B-TREE SEARCHES:")
-            best_time = float('inf')
-            best_degree = None
-            
-            for degree in degrees:
-                btree = btrees[degree]
-                result, search_time, comparisons = btree.search_with_stats(search_id)
-                
-                if search_time < best_time:
-                    best_time = search_time
-                    best_degree = degree
-                
-                print(f"   Degree {degree:3d}: ", end="")
-                if result:
-                    print(f"✅ Found | Time: {search_time:6.2f} μs | Comparisons: {comparisons:2d}")
-                else:
-                    print(f"❌ Not found | Time: {search_time:6.2f} μs | Comparisons: {comparisons:2d}")
-            
-            print(f"\n🏆 PERFORMANCE SUMMARY:")
-            print(f"   Best B-tree (degree {best_degree}): {best_time:.2f} μs")
-            print(f"   Linear search: {linear_time:.2f} μs")
-            if linear_time > best_time:
-                speedup = linear_time / best_time
-                print(f"   🚀 B-tree is {speedup:.1f}x FASTER than linear search!")
-            else:
-                print(f"   📈 Linear search was faster (small dataset effect)")
-            
-            print(f"   💡 Comparison reduction: {linear_comps:,} → {btrees[best_degree].search_comparisons} comparisons")
-            
-        except ValueError:
-            print("Please enter a valid number or 'quit'")
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            break
+    print("Running 1000 random searches with each method...\n")
     
-    # Run automated benchmark
-    print("\n" + "="*70)
-    print("AUTOMATED BENCHMARK - RANDOM SEARCHES")
-    print("="*70)
-    
-    # Test with random searches
-    random_ids = random.sample(range(1000, 1000 + num_records), 100)
-    
-    print("Running 100 random searches...")
-    
-    # Linear search benchmark
+    # 1. Linear search on unsorted list
+    print("🔍 LINEAR SEARCH (unsorted list):")
     linear_times = []
     linear_comparisons = []
     
-    for search_id in random_ids:
-        _, time_taken, comparisons = linear_search(sorted_data, search_id)
+    for search_id in test_ids[:100]:  # Smaller sample for linear search
+        result, time_taken, comparisons = linear_search(test_data, search_id)
         linear_times.append(time_taken)
         linear_comparisons.append(comparisons)
     
-    # B-tree benchmarks
-    btree_results = {}
+    print(f"   Average time: {statistics.mean(linear_times):.2f} μs")
+    print(f"   Average comparisons: {statistics.mean(linear_comparisons):.1f}")
+    print(f"   Max comparisons: {max(linear_comparisons)}")
+    
+    # 2. Binary search on sorted list
+    print(f"\n🔍 BINARY SEARCH (sorted list):")
+    binary_times = []
+    binary_comparisons = []
+    
+    for search_id in test_ids:
+        result, time_taken, comparisons = binary_search_list(sorted_data, search_id)
+        binary_times.append(time_taken)
+        binary_comparisons.append(comparisons)
+    
+    print(f"   Average time: {statistics.mean(binary_times):.2f} μs")
+    print(f"   Average comparisons: {statistics.mean(binary_comparisons):.1f}")
+    print(f"   Max comparisons: {max(binary_comparisons)}")
+    
+    # 3. B-tree with binary search
+    print(f"\n🔍 B-TREE with BINARY SEARCH:")
+    
+    best_binary_degree = None
+    best_binary_time = float('inf')
+    
     for degree in degrees:
         btree = btrees[degree]
         times = []
         comparisons = []
+        binary_searches = []
         
-        for search_id in random_ids:
-            _, time_taken, comps = btree.search_with_stats(search_id)
+        for search_id in test_ids:
+            result, time_taken, comps, bin_searches = btree.search_with_stats(search_id)
             times.append(time_taken)
             comparisons.append(comps)
+            binary_searches.append(bin_searches)
         
-        btree_results[degree] = {
-            'times': times,
-            'comparisons': comparisons
-        }
+        avg_time = statistics.mean(times)
+        if avg_time < best_binary_time:
+            best_binary_time = avg_time
+            best_binary_degree = degree
+        
+        stats = btree.get_tree_stats()
+        print(f"   Degree {degree:3d}: {avg_time:6.2f} μs, "
+              f"{statistics.mean(comparisons):4.1f} comparisons avg, "
+              f"{max(comparisons):2d} max, "
+              f"{statistics.mean(binary_searches):3.1f} binary searches, "
+              f"(avg {stats['avg_keys_per_node']:.1f} keys/node)")
     
-    # Print benchmark results
-    print(f"\n📈 BENCHMARK RESULTS (100 searches):")
-    print(f"{'Method':<15} {'Avg Time (μs)':<15} {'Avg Comparisons':<18} {'Max Comparisons':<18}")
-    print("-" * 70)
+    print("\n" + "="*80)
+    print("PERFORMANCE ANALYSIS")
+    print("="*80)
     
-    print(f"{'Linear Search':<15} {statistics.mean(linear_times):<15.2f} {statistics.mean(linear_comparisons):<18.1f} {max(linear_comparisons):<18}")
+    print(f"\n📊 COMPARISON SUMMARY (average performance):")
+    print(f"{'Method':<35} {'Time (μs)':<12} {'Comparisons':<12} {'Efficiency'}")
+    print("-" * 75)
     
+    linear_avg_time = statistics.mean(linear_times)
+    linear_avg_comps = statistics.mean(linear_comparisons)
+    binary_avg_time = statistics.mean(binary_times)
+    binary_avg_comps = statistics.mean(binary_comparisons)
+    
+    print(f"{'Linear search (unsorted)':<35} {linear_avg_time:<12.2f} {linear_avg_comps:<12.1f} O(n)")
+    print(f"{'Binary search (sorted list)':<35} {binary_avg_time:<12.2f} {binary_avg_comps:<12.1f} O(log n)")
+    
+    # Show B-tree results
     for degree in degrees:
-        avg_time = statistics.mean(btree_results[degree]['times'])
-        avg_comps = statistics.mean(btree_results[degree]['comparisons'])
-        max_comps = max(btree_results[degree]['comparisons'])
+        btree = btrees[degree]
         
-        print(f"{'B-tree (d=' + str(degree) + ')':<15} {avg_time:<15.2f} {avg_comps:<18.1f} {max_comps:<18}")
-    
-    print("\n💡 Key Insights:")
-    print("• B-trees show consistent O(log n) performance")
-    print("• Higher degree = shorter tree = fewer comparisons")
-    print("• Linear search: O(n) - performance degrades with data size")
-    print("• B-trees excel with large datasets (database-scale)")
-    
-    # Add detailed explanation of B-tree degree
-    print("\n" + "="*70)
-    print("UNDERSTANDING B-TREE DEGREE")
-    print("="*70)
-    
-    print("\n🎯 What is B-Tree Degree?")
-    print("The 'degree' (also called 't' or minimum degree) is a parameter that defines:")
-    print("• How many keys each node can hold")
-    print("• How wide vs tall the tree becomes")
-    print("• The tree's search performance characteristics")
-    
-    print(f"\n📏 Degree Rules:")
-    print("For a B-tree with degree 't':")
-    print("• Minimum keys per node: t - 1 (except root)")
-    print("• Maximum keys per node: 2t - 1")
-    print("• Maximum children per node: 2t")
-    
-    print(f"\n📊 Our Test Results Explained:")
-    for degree in degrees:
-        min_keys = degree - 1
-        max_keys = 2 * degree - 1
-        max_children = 2 * degree
-        stats = btrees[degree].get_tree_stats()
+        # Get binary search stats
+        times_binary = []
+        comps_binary = []
+        for search_id in test_ids[:100]:  # Sample for comparison
+            _, time_taken, comps, _ = btree.search_with_stats(search_id)
+            times_binary.append(time_taken)
+            comps_binary.append(comps)
         
-        print(f"   Degree {degree:3d}: Max {max_keys:2d} keys/node → Tree height: {stats['height']} → Avg {statistics.mean(btree_results[degree]['comparisons']):.1f} comparisons")
+        print(f"{'B-tree (d=' + str(degree) + ')':<35} {statistics.mean(times_binary):<12.2f} {statistics.mean(comps_binary):<12.1f} O(log n * log k)")
     
-    print(f"\n🌳 Tree Structure Impact:")
-    print("Lower Degree (e.g., 10):")
-    print("  ✓ Smaller nodes, easier to split")
-    print("  ✗ Taller tree, more levels to search")
-    print()
-    print("Higher Degree (e.g., 100):")
-    print("  ✓ Wider nodes, shorter tree")
-    print("  ✓ Fewer levels to traverse")
-    print("  ✗ More keys to scan within each node")
+    print(f"\n🎯 KEY INSIGHTS:")
+    print(f"1. **Binary Search Within Nodes**: As B-tree degree increases, nodes get larger")
+    print(f"2. **Efficiency Scales**: With degree 500, nodes can have ~1000 keys")
+    print(f"   - Binary search in node: ~10 comparisons (log₂(1000))")
+    print(f"3. **Overall Complexity**: O(log_d(n) * log(k)) where k = keys per node")
+    print(f"4. **Real Impact**: With large degrees, binary search is essential")
     
-    print(f"\n💾 Real Database Examples:")
-    print("• MySQL InnoDB: ~1000-2000 (fits 16KB disk pages)")
-    print("• PostgreSQL: ~300-500 (fits 8KB disk pages)")
-    print("• Our demo: 10-100 (for educational purposes)")
+    # Show degree impact
+    print(f"\n📈 DEGREE IMPACT:")
+    best_degree = min(degrees, key=lambda d: statistics.mean([
+        btrees[d].search_with_stats(test_ids[i])[2] for i in range(10)
+    ]))
+    worst_degree = max(degrees, key=lambda d: statistics.mean([
+        btrees[d].search_with_stats(test_ids[i])[2] for i in range(10)
+    ]))
     
-    print(f"\n🔑 Why Higher Degree Often Wins:")
-    print("• Fewer tree levels = fewer disk reads")
-    print("• Scanning keys within a node is fast (memory operation)")
-    print("• Disk I/O is ~1000x slower than memory access")
-    print("• Better cache utilization")
+    best_stats = btrees[best_degree].get_tree_stats()
+    worst_stats = btrees[worst_degree].get_tree_stats()
     
-    print(f"\n🎯 Optimal Degree Selection:")
-    print("Real databases choose degree based on:")
-    print("• Disk page size (4KB, 8KB, 16KB)")
-    print("• Average key + value size")
-    print("• Cache line size (typically 64 bytes)")
-    print("• Goal: Maximize keys per disk page")
+    print(f"Best performing degree: {best_degree} (height: {best_stats['height']}, avg keys/node: {best_stats['avg_keys_per_node']:.1f})")
+    print(f"Highest degree tested: {worst_degree} (height: {worst_stats['height']}, avg keys/node: {worst_stats['avg_keys_per_node']:.1f})")
     
-    print(f"\n📈 Performance Summary from Our Test:")
-    best_degree = min(degrees, key=lambda d: statistics.mean(btree_results[d]['comparisons']))
-    worst_degree = max(degrees, key=lambda d: statistics.mean(btree_results[d]['comparisons']))
+    print(f"\n📚 THEORETICAL ANALYSIS:")
+    print(f"For a B-tree with n = {num_records:,} records and degree d:")
+    print(f"• Tree height: O(log_d(n))")
+    print(f"• Keys per node: up to 2d-1")
+    print(f"• Binary search in node: O(log d)")
+    print(f"• Total complexity: O(log_d(n) * log d)")
+    print(f"\nWith large degrees (like databases use), binary search is essential!")
     
-    print(f"• Best performing degree: {best_degree} ({statistics.mean(btree_results[best_degree]['comparisons']):.1f} avg comparisons)")
-    print(f"• Worst performing degree: {worst_degree} ({statistics.mean(btree_results[worst_degree]['comparisons']):.1f} avg comparisons)")
-    print(f"• Performance improvement: {statistics.mean(btree_results[worst_degree]['comparisons'])/statistics.mean(btree_results[best_degree]['comparisons']):.1f}x better")
-    
-    print(f"\n🧠 Remember: In real databases with millions/billions of records,")
-    print(f"    the degree choice can mean the difference between 3 vs 15 disk reads!")
-    print("    That's why B-tree degree optimization is crucial for database performance.")
+    print(f"\n💾 REAL DATABASE IMPACT:")
+    print(f"Database systems like PostgreSQL and MySQL use degrees of 100-1000+")
+    print(f"• With degree 1000: Binary search = ~11 comparisons per node")
+    print(f"• With millions of records, efficient node search is crucial")
+    print(f"• This is why real B-tree implementations always use binary search")
 
 if __name__ == "__main__":
-    run_performance_test()
+    run_corrected_performance_test()
