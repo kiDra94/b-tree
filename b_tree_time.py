@@ -182,15 +182,15 @@ def binary_search_list(data_list, target):
             right = mid - 1
     
     end_time = time.perf_counter()
-    return None, (end_time - start_time) * 1000000, comparisons
+    return None, (end_time - start_time) * 1_000_000, comparisons
 
 def run_corrected_performance_test():
     print("="*80)
     print("B-TREE PERFORMANCE: LINEAR vs BINARY SEARCH COMPARISON")
     print("="*80)
     
-    degrees = [10, 25, 50, 100, 500]
-    num_records = 50000  # Smaller for detailed analysis
+    degrees = [10, 25, 50, 100, 500, 1000]
+    num_records = 1_000_000  # Smaller for detailed analysis
     
     print(f"Setting up test with {num_records:,} records...")
     
@@ -279,7 +279,7 @@ def run_corrected_performance_test():
             best_binary_degree = degree
         
         stats = btree.get_tree_stats()
-        print(f"   Degree {degree:3d}: {avg_time:6.2f} μs, "
+        print(f"   Degree {degree:4d}: {avg_time:6.2f} μs, "
               f"{statistics.mean(comparisons):4.1f} comparisons avg, "
               f"{max(comparisons):2d} max, "
               f"{statistics.mean(binary_searches):3.1f} binary searches, "
@@ -317,25 +317,9 @@ def run_corrected_performance_test():
     
     print(f"\n🎯 KEY INSIGHTS:")
     print(f"1. **Binary Search Within Nodes**: As B-tree degree increases, nodes get larger")
-    print(f"2. **Efficiency Scales**: With degree 500, nodes can have ~1000 keys")
+    print(f"2. **Efficiency Scales**: With degree 1000, nodes can have ~2000 keys")
     print(f"   - Binary search in node: ~10 comparisons (log₂(1000))")
     print(f"3. **Overall Complexity**: O(log_d(n) * log(k)) where k = keys per node")
-    print(f"4. **Real Impact**: With large degrees, binary search is essential")
-    
-    # Show degree impact
-    print(f"\n📈 DEGREE IMPACT:")
-    best_degree = min(degrees, key=lambda d: statistics.mean([
-        btrees[d].search_with_stats(test_ids[i])[2] for i in range(10)
-    ]))
-    worst_degree = max(degrees, key=lambda d: statistics.mean([
-        btrees[d].search_with_stats(test_ids[i])[2] for i in range(10)
-    ]))
-    
-    best_stats = btrees[best_degree].get_tree_stats()
-    worst_stats = btrees[worst_degree].get_tree_stats()
-    
-    print(f"Best performing degree: {best_degree} (height: {best_stats['height']}, avg keys/node: {best_stats['avg_keys_per_node']:.1f})")
-    print(f"Highest degree tested: {worst_degree} (height: {worst_stats['height']}, avg keys/node: {worst_stats['avg_keys_per_node']:.1f})")
     
     print(f"\n📚 THEORETICAL ANALYSIS:")
     print(f"For a B-tree with n = {num_records:,} records and degree d:")
@@ -343,13 +327,10 @@ def run_corrected_performance_test():
     print(f"• Keys per node: up to 2d-1")
     print(f"• Binary search in node: O(log d)")
     print(f"• Total complexity: O(log_d(n) * log d)")
-    print(f"\nWith large degrees (like databases use), binary search is essential!")
     
     print(f"\n💾 REAL DATABASE IMPACT:")
     print(f"Database systems like PostgreSQL and MySQL use degrees of 100-1000+")
-    print(f"• With degree 1000: Binary search = ~11 comparisons per node")
     print(f"• With millions of records, efficient node search is crucial")
-    print(f"• This is why real B-tree implementations always use binary search")
 
 if __name__ == "__main__":
     run_corrected_performance_test()
